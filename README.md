@@ -1,131 +1,97 @@
 # AI Research Summary
 
-A lightweight application to scrape, display, and summarize AI research papers from Hugging Face.
+A Next.js application that generates concise, structured summaries of AI research papers using OpenAI's GPT-4.
 
 ## Features
 
-- **Paper Scraping**: Automatically scrapes papers from Hugging Face's papers section
-- **Filtering & Sorting**: Filter papers by date and sort by upvotes or date
-- **AI-Powered Summaries**: Generate structured summaries for non-technical readers using OpenAI
-- **Responsive UI**: Clean, mobile-friendly interface built with Next.js and Tailwind CSS
+- Browse recent AI research papers
+- Generate structured summaries with TL;DR, key innovations, practical applications, and more
+- Admin dashboard to manage papers and summaries
+- Responsive design for desktop and mobile
 
 ## Tech Stack
 
-- **Frontend**: Next.js, React, Tailwind CSS
-- **Backend**: Next.js API Routes
-- **Database**: Supabase
-- **AI**: OpenAI API (GPT-4)
-- **Scraping**: Axios, Cheerio
+- Next.js 14 (App Router)
+- TypeScript
+- Supabase (PostgreSQL)
+- OpenAI API
+- Tailwind CSS
 
-## Getting Started
+## Local Development
 
-### Prerequisites
-
-- Node.js 18+ and npm
-- Supabase account
-- OpenAI API key
-
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/ai-research-summary.git
-   cd ai-research-summary
-   ```
-
+1. Clone the repository
 2. Install dependencies:
-   ```bash
+   ```
    npm install
    ```
-
 3. Create a `.env.local` file with the following variables:
    ```
-   # Supabase
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-   # OpenAI
+   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
    OPENAI_API_KEY=your_openai_api_key
-
-   # App Configuration
    NEXT_PUBLIC_APP_URL=http://localhost:3000
    ```
-
-4. Set up your Supabase database with the following tables:
-
-   **papers**
-   - id (text, primary key)
-   - title (text)
-   - abstract (text)
-   - date (date)
-   - url (text)
-   - upvotes (integer)
-   - created_at (timestamp with timezone)
-   - updated_at (timestamp with timezone)
-   - has_summary (boolean)
-
-   **summaries**
-   - id (text, primary key)
-   - paper_id (text, foreign key to papers.id)
-   - tldr (text)
-   - key_points (json array)
-   - business_implications (json array)
-   - key_terms (json)
-   - created_at (timestamp with timezone)
-   - updated_at (timestamp with timezone)
-
-5. Run the development server:
-   ```bash
+4. Run the development server:
+   ```
    npm run dev
    ```
 
-6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+## Deployment to Vercel
 
-### Scraping Papers
+### Prerequisites
 
-To scrape papers, make a GET request to the `/api/scrape` endpoint:
+- A Vercel account
+- A Supabase project
+- An OpenAI API key
 
-```
-GET /api/scrape?days=7
-```
+### Steps
 
-This will scrape papers from the last 7 days. You can adjust the `days` parameter as needed.
+1. Push your code to a GitHub repository
 
-## Structured Summaries
+2. In the Vercel dashboard, click "Add New" > "Project"
 
-This application uses a standardized structure for AI-generated summaries to make research papers more accessible to non-technical audiences.
+3. Import your GitHub repository
 
-### Summary Structure
+4. Configure the project:
+   - Framework Preset: Next.js
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
 
-Each paper summary includes the following sections:
+5. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `OPENAI_API_KEY`
+   - `NEXT_PUBLIC_APP_URL` (set to your Vercel deployment URL)
 
-1. **TL;DR (Quick Overview)**: A concise summary of the paper in 1-2 sentences.
-2. **Key Innovation**: Explains what's new or novel about the research.
-3. **Practical Applications**: Lists potential real-world uses for the research.
-4. **Limitations & Future Work**: Outlines current limitations and potential improvements.
-5. **Key Terms**: Defines technical terms in simple language.
+6. Click "Deploy"
 
-### Implementation Steps
+### Post-Deployment
 
-To update existing summaries to the new structure:
+After deployment, you may need to:
 
-1. First, update the database schema:
-   - Run the SQL script in `scripts/modify-summaries-table.sql` in your Supabase SQL Editor.
-   - This will add the required columns to the summaries table.
+1. Set up the database schema in Supabase
+2. Import initial paper data
+3. Configure CORS in Supabase to allow requests from your Vercel domain
 
-2. Regenerate existing summaries:
-   - Run `npx ts-node scripts/regenerate-summaries.ts` to regenerate all existing summaries using the new structure.
+## Troubleshooting
 
-3. All new summaries will automatically use the new structure.
+### Summary Generation Issues
 
-### Customizing the Structure
+If you encounter issues with summary generation:
 
-If you want to modify the summary structure:
+1. Check that your OpenAI API key is valid and has sufficient credits
+2. Verify that the paper data in Supabase is correctly formatted
+3. Check the logs in Vercel for any specific error messages
 
-1. Update the `Summary` interface in `src/types/index.ts`
-2. Modify the OpenAI prompt in `src/lib/openai.ts`
-3. Update the UI components that display summaries in `src/app/paper/[id]/page.tsx`
+### Database Connection Issues
+
+If you have issues connecting to Supabase:
+
+1. Verify that your Supabase URL and keys are correct
+2. Check that your IP is allowed in Supabase's network settings
+3. Ensure that the database schema matches what the application expects
 
 ## License
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateSummary } from '@/lib/openai';
 
@@ -43,6 +44,25 @@ async function processPaperBatch(papers: any[]) {
     try {
       console.log(`Generating summary for paper ${paper.id}: ${paper.title}`);
       
+      // Check if summary already exists and delete it if it does
+      const { data: existingSummary } = await supabaseAdmin
+        .from('summaries')
+        .select('id')
+        .eq('paper_id', paper.id);
+      
+      if (existingSummary && existingSummary.length > 0) {
+        console.log(`Deleting existing summary for paper ${paper.id}`);
+        const { error: deleteError } = await supabaseAdmin
+          .from('summaries')
+          .delete()
+          .eq('paper_id', paper.id);
+        
+        if (deleteError) {
+          console.error(`Error deleting existing summary for paper ${paper.id}:`, deleteError);
+          // Continue anyway, as the insert might still work
+        }
+      }
+      
       // Generate summary
       const summary = await generateSummary(paper.url);
       
@@ -62,7 +82,31 @@ async function processPaperBatch(papers: any[]) {
         }]);
 
       if (summaryError) {
-        throw summaryError;
+        // If we still get an error, try one more time with a different ID
+        if (summaryError.message.includes('duplicate key')) {
+          console.log(`Retrying with a different ID for paper ${paper.id}`);
+          const newId = `summary-${paper.id}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          
+          const { error: retryError } = await supabaseAdmin
+            .from('summaries')
+            .insert([{
+              id: newId,
+              paper_id: paper.id,
+              tldr: summary.tldr,
+              key_innovation: summary.key_innovation,
+              practical_applications: summary.practical_applications,
+              limitations_future_work: summary.limitations_future_work,
+              key_terms: summary.key_terms,
+              created_at: summary.created_at,
+              updated_at: summary.updated_at
+            }]);
+            
+          if (retryError) {
+            throw retryError;
+          }
+        } else {
+          throw summaryError;
+        }
       }
 
       // Update paper has_summary flag

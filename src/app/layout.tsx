@@ -7,7 +7,21 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'AI Research Summary',
-  description: 'A tool to scrape, display, and summarize AI research papers',
+  description: 'Concise, structured summaries of AI research papers for non-technical audiences',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
+  openGraph: {
+    title: 'AI Research Summary',
+    description: 'Concise, structured summaries of AI research papers for non-technical audiences',
+    url: process.env.NEXT_PUBLIC_APP_URL,
+    siteName: 'AI Research Summary',
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AI Research Summary',
+    description: 'Concise, structured summaries of AI research papers for non-technical audiences',
+  },
 };
 
 export default function RootLayout({

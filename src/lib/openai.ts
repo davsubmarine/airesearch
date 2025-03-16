@@ -109,11 +109,31 @@ Example format for bullet points:
         return Array(expectedCount).fill(`Default ${section} point - needs review.`);
       }
       
-      const points = sectionMatch[0]
-        .split(/\n-/)
-        .slice(1)
-        .map(point => point.trim())
-        .filter(point => point.length > 0);
+      // More robust bullet point extraction
+      let points: string[] = [];
+      
+      // Try to extract bullet points with different patterns
+      const bulletPattern1 = sectionMatch[0].split(/\n-\s*/);
+      const bulletPattern2 = sectionMatch[0].split(/\r?\n-\s*/);
+      const bulletPattern3 = sectionMatch[0].match(/-\s*([^\n-]+)/g);
+      
+      if (bulletPattern1.length > 1) {
+        points = bulletPattern1.slice(1).map(p => p.trim()).filter(p => p.length > 0);
+      } else if (bulletPattern2.length > 1) {
+        points = bulletPattern2.slice(1).map(p => p.trim()).filter(p => p.length > 0);
+      } else if (bulletPattern3) {
+        points = bulletPattern3.map(p => p.replace(/^-\s*/, '').trim()).filter(p => p.length > 0);
+      }
+      
+      // If we still don't have points, try a more aggressive approach
+      if (points.length === 0) {
+        const lines = sectionMatch[0].split('\n').map(line => line.trim());
+        points = lines
+          .filter(line => line.length > 0)
+          .filter(line => !line.includes(section))
+          .filter(line => !line.match(/^\d+\./))
+          .map(line => line.replace(/^-\s*/, '').trim());
+      }
 
       // If we don't have enough points, add default ones
       const result = [...points];
@@ -121,6 +141,7 @@ Example format for bullet points:
         result.push(`Additional ${section} point - needs review.`);
       }
 
+      // Ensure we return exactly the expected count
       return result.slice(0, expectedCount);
     }
 
@@ -137,6 +158,9 @@ Example format for bullet points:
       }
 
       const terms: Record<string, string> = {};
+      
+      // Try multiple approaches to extract terms
+      // Approach 1: Look for lines with hyphens
       const termLines = keyTermsMatch[0]
         .split('\n')
         .map(line => line.trim())
@@ -147,12 +171,52 @@ Example format for bullet points:
 
       // Process each term line
       termLines.forEach(line => {
-        const [term, ...defParts] = line.split('-');
-        const definition = defParts.join('-').trim(); // Handle cases where definition contains hyphens
-        if (term && definition) {
-          terms[term.trim()] = definition;
+        const parts = line.split('-');
+        if (parts.length >= 2) {
+          const term = parts[0].trim();
+          const definition = parts.slice(1).join('-').trim(); // Handle cases where definition contains hyphens
+          if (term && definition) {
+            terms[term] = definition;
+          }
         }
       });
+      
+      // Approach 2: If we didn't find terms with hyphens, try looking for lines with colons
+      if (Object.keys(terms).length === 0) {
+        const colonLines = keyTermsMatch[0]
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0)
+          .filter(line => !line.includes('Key Terms'))
+          .filter(line => line.includes(':'));
+          
+        colonLines.forEach(line => {
+          const [term, ...defParts] = line.split(':');
+          const definition = defParts.join(':').trim();
+          if (term && definition) {
+            terms[term.trim()] = definition;
+          }
+        });
+      }
+      
+      // Approach 3: Last resort - just take non-empty lines as terms and definitions
+      if (Object.keys(terms).length === 0) {
+        const allLines = keyTermsMatch[0]
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0)
+          .filter(line => !line.includes('Key Terms'))
+          .filter(line => !line.match(/^\d+\./));
+          
+        // Try to extract term-definition pairs from consecutive lines
+        for (let i = 0; i < allLines.length - 1; i += 2) {
+          const term = allLines[i];
+          const definition = allLines[i + 1];
+          if (term && definition) {
+            terms[term] = definition;
+          }
+        }
+      }
 
       // If we don't have exactly 3 terms, add default terms
       const defaultTerms = [
