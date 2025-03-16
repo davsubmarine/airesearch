@@ -5,20 +5,23 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing Supabase credentials');
-  process.exit(1);
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Missing Supabase environment variables');
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function addSummaryColumn() {
   try {
-    const { error } = await supabase
-      .from('papers')
-      .alter('summary', { type: 'text' });
+    // Use direct SQL to alter the table
+    const { error } = await supabase.rpc('add_summary_column', {
+      sql: `
+        ALTER TABLE papers
+        ADD COLUMN IF NOT EXISTS summary text;
+      `
+    });
 
     if (error) {
       throw error;
@@ -27,6 +30,7 @@ async function addSummaryColumn() {
     console.log('Successfully added summary column to papers table');
   } catch (error) {
     console.error('Error adding summary column:', error);
+    process.exit(1);
   }
 }
 
