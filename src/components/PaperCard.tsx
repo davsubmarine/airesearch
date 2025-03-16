@@ -15,8 +15,6 @@ export default function PaperCard({ paper }: PaperCardProps) {
   // Fetch summary if paper has one
   useEffect(() => {
     const fetchSummary = async () => {
-      if (!paper.has_summary) return;
-      
       try {
         setLoading(true);
         const response = await fetch(`/api/papers/${paper.id}`);
@@ -24,6 +22,11 @@ export default function PaperCard({ paper }: PaperCardProps) {
         
         if (data.success && data.summary) {
           setSummary(data.summary);
+          
+          // If the paper has a summary but the flag is not set, update it locally
+          if (!paper.has_summary) {
+            paper.has_summary = true;
+          }
         }
       } catch (err) {
         console.error('Error fetching summary:', err);

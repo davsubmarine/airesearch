@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, Tables } from '@/lib/supabase';
+import { supabase, supabaseAdmin, Tables } from '@/lib/supabase';
 
 export async function GET(request: Request) {
   try {
@@ -52,6 +52,45 @@ export async function GET(request: Request) {
     
     if (error) {
       throw error;
+    }
+    
+    // Check for papers with summaries but has_summary = false
+    if (papers && papers.length > 0) {
+      // Get all paper IDs
+      const paperIds = papers.map(paper => paper.id);
+      
+      // Check which papers have summaries
+      const { data: summaries } = await supabaseAdmin
+        .from(Tables.summaries)
+        .select('paper_id')
+        .in('paper_id', paperIds);
+      
+      if (summaries && summaries.length > 0) {
+        // Create a set of paper IDs that have summaries
+        const paperIdsWithSummaries = new Set(summaries.map(summary => summary.paper_id));
+        
+        // Find papers that have summaries but has_summary = false
+        const papersToUpdate = papers
+          .filter(paper => paperIdsWithSummaries.has(paper.id) && !paper.has_summary)
+          .map(paper => paper.id);
+        
+        if (papersToUpdate.length > 0) {
+          console.log(`Updating has_summary flag for ${papersToUpdate.length} papers`);
+          
+          // Update the has_summary flag for these papers
+          await supabaseAdmin
+            .from(Tables.papers)
+            .update({ has_summary: true })
+            .in('id', papersToUpdate);
+          
+          // Update the papers array in memory
+          papers.forEach(paper => {
+            if (paperIdsWithSummaries.has(paper.id)) {
+              paper.has_summary = true;
+            }
+          });
+        }
+      }
     }
     
     return NextResponse.json({
