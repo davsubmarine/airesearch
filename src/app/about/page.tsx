@@ -36,6 +36,9 @@ export default function About() {
           <li>Cheerio for web scraping</li>
         </ul>
       </div>
+
+      <p>We&apos;re passionate about making research papers more accessible.</p>
+      <p>We&apos;re constantly improving our AI models to provide better summaries.</p>
     </div>
   );
 } 

@@ -1,32 +1,32 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const ADMIN_EMAIL = 'david@submarine.ai';
-const ADMIN_PASSWORD = '0000055555AIResearch';
+import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
 
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      // Set a secure HTTP-only cookie for authentication
-      const response = NextResponse.json({ success: true });
-      response.cookies.set('admin_token', 'authenticated', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 60 * 60 * 24 // 24 hours
-      });
-      return response;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
+      );
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Invalid credentials' },
-      { status: 401 }
-    );
+    return NextResponse.json({ success: true });
   } catch (error) {
+    console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
