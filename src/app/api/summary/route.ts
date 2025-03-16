@@ -77,7 +77,18 @@ export async function POST(request: Request) {
 // Get a summary for a paper
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
+    // Use a try-catch block specifically for URL parsing
+    let url;
+    try {
+      url = new URL(request.url);
+    } catch (urlError) {
+      console.error('Invalid URL in request:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid request URL' },
+        { status: 400 }
+      );
+    }
+    
     const paperId = url.searchParams.get('paperId');
     
     if (!paperId) {

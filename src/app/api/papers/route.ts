@@ -3,7 +3,17 @@ import { supabase, Tables } from '@/lib/supabase';
 
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
+    // Use a try-catch block specifically for URL parsing
+    let url;
+    try {
+      url = new URL(request.url);
+    } catch (urlError) {
+      console.error('Invalid URL in request:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid request URL' },
+        { status: 400 }
+      );
+    }
     
     // Parse query parameters
     const startDate = url.searchParams.get('startDate');

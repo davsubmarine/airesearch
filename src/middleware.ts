@@ -14,7 +14,9 @@ export function middleware(request: NextRequest) {
 
     if (!adminToken || adminToken.value !== 'authenticated') {
       // Redirect to login if not authenticated
-      return NextResponse.redirect(new URL('/admin/login', request.url));
+      // Use the origin from the request to ensure we have a valid URL
+      const url = new URL('/admin/login', request.nextUrl.origin);
+      return NextResponse.redirect(url);
     }
   }
 
