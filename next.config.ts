@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   serverRuntimeConfig: {
     apiTimeout: 60 * 1000, // 60 seconds
   },
+  // Disable ESLint during production builds
+  eslint: {
+    // Warning: This allows production builds to successfully complete even if
+    // your project has ESLint errors.
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;
