@@ -6,13 +6,20 @@ import { useRouter } from 'next/navigation';
 export default function AdminDashboard() {
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isScraping, setIsScraping] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [scrapingMessage, setScrapingMessage] = useState<string | null>(null);
+  const [daysToScrape, setDaysToScrape] = useState<string>('7');
   const [status, setStatus] = useState<{
     total: number;
     processed: number;
     succeeded: number;
     failed: number;
     errors: Array<{ paperId: string; error: string }>;
+  } | null>(null);
+  const [scrapingResult, setScrapingResult] = useState<{
+    totalPapers?: number;
+    daysProcessed?: number;
   } | null>(null);
 
   const handleLogout = async () => {
@@ -60,6 +67,64 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleScrapeNewPapers = async () => {
+    setIsScraping(true);
+    setScrapingMessage(null);
+    setScrapingResult(null);
+    
+    try {
+      const response = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'new' }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.message) {
+        setScrapingMessage(data.message);
+      }
+      
+      if (data.result) {
+        setScrapingResult(data.result);
+      }
+    } catch (error) {
+      console.error('Failed to scrape new papers:', error);
+      setScrapingMessage('An error occurred while scraping new papers');
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
+  const handleScrapeByDays = async () => {
+    setIsScraping(true);
+    setScrapingMessage(null);
+    setScrapingResult(null);
+    
+    try {
+      const response = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'days', days: daysToScrape }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.message) {
+        setScrapingMessage(data.message);
+      }
+    } catch (error) {
+      console.error('Failed to scrape papers:', error);
+      setScrapingMessage('An error occurred while scraping papers');
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-sm">
@@ -81,9 +146,103 @@ export default function AdminDashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {/* Paper Scraping Section */}
+        <div className="px-4 py-6 sm:px-0 mb-8">
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-2xl font-bold mb-4">Paper Scraping</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Scrape by Days */}
+              <div className="bg-gray-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold mb-3">Scrape by Days</h3>
+                <p className="text-gray-600 mb-4">
+                  Scrape papers from the last X days. Enter the number of days to scrape.
+                </p>
+                
+                <div className="flex items-end space-x-4 mb-4">
+                  <div>
+                    <label htmlFor="daysToScrape" className="block text-sm font-medium text-gray-700 mb-1">
+                      Number of Days
+                    </label>
+                    <input
+                      type="number"
+                      id="daysToScrape"
+                      min="1"
+                      max="30"
+                      value={daysToScrape}
+                      onChange={(e) => setDaysToScrape(e.target.value)}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <button
+                    onClick={handleScrapeByDays}
+                    disabled={isScraping}
+                    className={`px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
+                      isScraping 
+                        ? 'bg-gray-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700'
+                    } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                  >
+                    {isScraping ? 'Scraping...' : 'Scrape Papers'}
+                  </button>
+                </div>
+              </div>
+              
+              {/* Scrape New Papers */}
+              <div className="bg-gray-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold mb-3">Scrape New Papers</h3>
+                <p className="text-gray-600 mb-4">
+                  Scrape all new papers since the most recent paper in the database.
+                </p>
+                
+                <button
+                  onClick={handleScrapeNewPapers}
+                  disabled={isScraping}
+                  className={`px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
+                    isScraping 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                >
+                  {isScraping ? 'Scraping...' : 'Scrape New Papers'}
+                </button>
+              </div>
+            </div>
+            
+            {scrapingMessage && (
+              <div className="mt-6 p-4 bg-blue-50 text-blue-700 rounded-md">
+                {scrapingMessage}
+              </div>
+            )}
+            
+            {isScraping && (
+              <div className="mt-6 p-4 bg-yellow-50 text-yellow-700 rounded-md">
+                Scraping papers... This may take a while. Please don't close this page.
+              </div>
+            )}
+            
+            {scrapingResult && (
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-2">Scraping Results</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-md">
+                    <p className="text-sm text-gray-600">Total Papers Scraped</p>
+                    <p className="text-2xl font-bold">{scrapingResult.totalPapers || 0}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-md">
+                    <p className="text-sm text-gray-600">Days Processed</p>
+                    <p className="text-2xl font-bold">{scrapingResult.daysProcessed || 0}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Summary Generation Section */}
         <div className="px-4 py-6 sm:px-0">
           <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-2xl font-bold mb-4">Paper Management</h2>
+            <h2 className="text-2xl font-bold mb-4">Summary Generation</h2>
             
             <div className="mb-6">
               <p className="text-gray-600 mb-4">

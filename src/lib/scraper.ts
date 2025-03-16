@@ -160,4 +160,78 @@ export async function scrapeMultipleDays(days: number = 7): Promise<void> {
   }
   
   console.log('Completed scraping for all days');
+}
+
+/**
+ * Gets the most recent paper date from the database
+ */
+async function getMostRecentPaperDate(): Promise<string> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from(Tables.papers)
+      .select('date')
+      .order('date', { ascending: false })
+      .limit(1);
+    
+    if (error) {
+      console.error('Error getting most recent paper date:', error);
+      // Default to 7 days ago if there's an error
+      return dayjs().subtract(7, 'day').format('YYYY-MM-DD');
+    }
+    
+    if (!data || data.length === 0) {
+      // No papers in the database, default to 7 days ago
+      return dayjs().subtract(7, 'day').format('YYYY-MM-DD');
+    }
+    
+    return data[0].date;
+  } catch (error) {
+    console.error('Error getting most recent paper date:', error);
+    // Default to 7 days ago if there's an error
+    return dayjs().subtract(7, 'day').format('YYYY-MM-DD');
+  }
+}
+
+/**
+ * Scrapes all new papers since the most recent paper in the database
+ * @returns Object with total papers scraped and days processed
+ */
+export async function scrapeNewPapers(): Promise<{ totalPapers: number, daysProcessed: number }> {
+  console.log('Starting to scrape new papers...');
+  
+  // Get the most recent paper date from the database
+  const mostRecentDate = await getMostRecentPaperDate();
+  console.log(`Most recent paper date in database: ${mostRecentDate}`);
+  
+  // Calculate the number of days to scrape
+  const today = dayjs().format('YYYY-MM-DD');
+  const dayDiff = dayjs(today).diff(dayjs(mostRecentDate), 'day');
+  
+  // If the most recent paper is from today, we'll still check today again
+  // to make sure we have all the latest papers
+  const daysToScrape = Math.max(1, dayDiff);
+  
+  console.log(`Scraping papers for the last ${daysToScrape} days...`);
+  
+  let totalPapers = 0;
+  
+  for (let i = 0; i < daysToScrape; i++) {
+    const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+    console.log(`Processing day ${i + 1}/${daysToScrape}: ${date}`);
+    
+    const papers = await scrapePapers(date);
+    totalPapers += papers.length;
+    
+    if (papers.length > 0) {
+      await savePapers(papers);
+    }
+    
+    // Add a small delay to avoid overwhelming the server
+    if (i < daysToScrape - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  
+  console.log(`Completed scraping new papers. Total papers scraped: ${totalPapers}`);
+  return { totalPapers, daysProcessed: daysToScrape };
 } 
