@@ -35,23 +35,36 @@ export default function PaperSummary({ summary, isLoading = false }: PaperSummar
     <div className="bg-white shadow rounded-lg p-6">
       <div className="mb-6">
         <h3 className="text-lg font-medium text-gray-900 mb-2">TL;DR</h3>
-        <p className="text-gray-700">{summary.tldr}</p>
-      </div>
-      
-      <div className="mb-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Key Points</h3>
         <ul className="list-disc pl-5 space-y-1">
-          {summary.key_points.map((point, index) => (
+          {summary.tldr.map((point, index) => (
             <li key={index} className="text-gray-700">{point}</li>
           ))}
         </ul>
       </div>
       
       <div className="mb-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Business Implications</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Key Innovation</h3>
         <ul className="list-disc pl-5 space-y-1">
-          {summary.business_implications.map((implication, index) => (
-            <li key={index} className="text-gray-700">{implication}</li>
+          {summary.key_innovation.map((point, index) => (
+            <li key={index} className="text-gray-700">{point}</li>
+          ))}
+        </ul>
+      </div>
+      
+      <div className="mb-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Practical Applications</h3>
+        <ul className="list-disc pl-5 space-y-1">
+          {summary.practical_applications.map((application, index) => (
+            <li key={index} className="text-gray-700">{application}</li>
+          ))}
+        </ul>
+      </div>
+      
+      <div className="mb-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Limitations & Future Work</h3>
+        <ul className="list-disc pl-5 space-y-1">
+          {summary.limitations_future_work.map((limitation, index) => (
+            <li key={index} className="text-gray-700">{limitation}</li>
           ))}
         </ul>
       </div>
