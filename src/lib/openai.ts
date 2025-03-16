@@ -10,24 +10,24 @@ const openai = new OpenAI({
 /**
  * Generate a structured summary for a research paper
  */
-export async function generateSummary(paperUrl: string): Promise<Summary> {
+export async function generateSummary(paperUrlOrPaper: string | Paper): Promise<Summary> {
   try {
     // Fetch paper data if only URL is provided
     let paper: Paper;
-    if (typeof paperUrl === 'string') {
+    if (typeof paperUrlOrPaper === 'string') {
       const { data, error } = await supabaseAdmin
         .from(Tables.papers)
         .select('*')
-        .eq('url', paperUrl)
+        .eq('url', paperUrlOrPaper)
         .single();
       
       if (error || !data) {
-        throw new Error(`Paper not found for URL: ${paperUrl}`);
+        throw new Error(`Paper not found for URL: ${paperUrlOrPaper}`);
       }
       
       paper = data;
     } else {
-      paper = paperUrl as Paper;
+      paper = paperUrlOrPaper;
     }
 
     const prompt = `

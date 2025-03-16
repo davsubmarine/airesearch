@@ -37,6 +37,14 @@ export async function POST(request: Request) {
       .single();
     
     if (existingSummary) {
+      // Update paper has_summary flag if needed
+      if (!paper.has_summary) {
+        await supabase
+          .from(Tables.papers)
+          .update({ has_summary: true })
+          .eq('id', paperId);
+      }
+      
       return NextResponse.json({
         success: true,
         message: 'Summary already exists',
@@ -44,7 +52,7 @@ export async function POST(request: Request) {
       });
     }
     
-    // Generate the summary
+    // Generate the summary using the paper object
     const summary = await generateSummary(paper);
     
     if (!summary) {
@@ -56,6 +64,12 @@ export async function POST(request: Request) {
     
     // Save the summary
     await saveSummary(summary);
+    
+    // Update paper has_summary flag
+    await supabase
+      .from(Tables.papers)
+      .update({ has_summary: true })
+      .eq('id', paperId);
     
     return NextResponse.json({
       success: true,

@@ -17,27 +17,36 @@ export async function GET(
       );
     }
     
-    const { data: summary, error } = await supabaseAdmin
-      .from('summaries')
-      .select('*')
-      .eq('paper_id', id)
-      .single();
+    // Fetch both paper and summary data
+    const [paperResult, summaryResult] = await Promise.all([
+      supabaseAdmin
+        .from('papers')
+        .select('*')
+        .eq('id', id)
+        .single(),
+      supabaseAdmin
+        .from('summaries')
+        .select('*')
+        .eq('paper_id', id)
+        .single()
+    ]);
     
-    if (error) {
+    if (paperResult.error) {
       return NextResponse.json(
-        { success: false, error: error.message },
+        { success: false, error: paperResult.error.message },
         { status: 500 }
       );
     }
     
     return NextResponse.json({
       success: true,
-      summary
+      paper: paperResult.data,
+      summary: summaryResult.data || null
     });
   } catch (err) {
-    console.error('Error fetching paper summary:', err);
+    console.error('Error fetching paper and summary:', err);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch paper summary' },
+      { success: false, error: 'Failed to fetch paper and summary' },
       { status: 500 }
     );
   }
