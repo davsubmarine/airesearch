@@ -15,12 +15,45 @@ const scrapingStatus = {
     totalDays: number;
     currentBatch?: number;
     totalBatches?: number;
+    papersSoFar?: number;
+    currentDate?: string;
+    logs?: string[];
   } | null
 };
 
+// Maximum number of log entries to keep
+const MAX_LOG_ENTRIES = 100;
+
 // Helper function to update progress (not exported)
-function updateScrapingProgress(progress: typeof scrapingStatus.progress) {
-  scrapingStatus.progress = progress;
+function updateScrapingProgress(progress: Partial<NonNullable<typeof scrapingStatus.progress>>) {
+  if (!scrapingStatus.progress) {
+    scrapingStatus.progress = {
+      currentDay: progress.currentDay || 0,
+      totalDays: progress.totalDays || 0,
+      logs: []
+    };
+  } else {
+    // Update existing progress with new values
+    scrapingStatus.progress = {
+      ...scrapingStatus.progress,
+      ...progress
+    };
+  }
+
+  // Add log entry if provided
+  if (progress.logs && progress.logs.length > 0) {
+    if (!scrapingStatus.progress.logs) {
+      scrapingStatus.progress.logs = [];
+    }
+    
+    // Add new logs
+    scrapingStatus.progress.logs.push(...progress.logs);
+    
+    // Keep only the most recent logs
+    if (scrapingStatus.progress.logs.length > MAX_LOG_ENTRIES) {
+      scrapingStatus.progress.logs = scrapingStatus.progress.logs.slice(-MAX_LOG_ENTRIES);
+    }
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -62,7 +95,12 @@ export async function POST(request: NextRequest) {
     scrapingStatus.lastError = null;
     scrapingStatus.mode = mode;
     scrapingStatus.lastResult = null;
-    scrapingStatus.progress = null;
+    scrapingStatus.progress = {
+      currentDay: 0,
+      totalDays: 0,
+      papersSoFar: 0,
+      logs: []
+    };
     
     if (mode === 'days') {
       // Get days from request body
@@ -80,7 +118,7 @@ export async function POST(request: NextRequest) {
       
       const days = parseInt(body.days) || 7;
       
-      // Validate days - strictly enforce the 30-day limit
+      // Validate days - allow up to 365 days
       if (isNaN(days) || days < 1) {
         scrapingStatus.isRunning = false;
         scrapingStatus.lastError = 'Invalid days parameter. Must be a positive number.';
@@ -90,10 +128,12 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Enforce maximum days limit
-      const limitedDays = Math.min(30, days);
+      // Enforce maximum days limit of 365 days
+      const limitedDays = Math.min(365, days);
       if (limitedDays < days) {
-        console.log(`Limiting requested scraping days from ${days} to ${limitedDays} to prevent timeouts`);
+        const message = `Limiting requested scraping days from ${days} to ${limitedDays} (maximum allowed)`;
+        console.log(message);
+        updateScrapingProgress({ logs: [message] });
       }
       
       scrapingStatus.daysToScrape = limitedDays;
@@ -138,10 +178,12 @@ export async function POST(request: NextRequest) {
 async function scrapeByDaysInBackground(days: number) {
   try {
     // Initialize progress
-    scrapingStatus.progress = {
+    updateScrapingProgress({
       currentDay: 0,
-      totalDays: days
-    };
+      totalDays: days,
+      papersSoFar: 0,
+      logs: [`Starting to scrape papers for the last ${days} days...`]
+    });
     
     // Create a wrapper around scrapeMultipleDays that updates progress
     const scrapeWithProgress = async () => {
@@ -149,15 +191,27 @@ async function scrapeByDaysInBackground(days: number) {
         let totalPapers = 0;
         
         for (let i = 0; i < days; i++) {
+          // Calculate the date for this offset
+          const dayjs = require('dayjs');
+          const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+          
           // Update progress
-          scrapingStatus.progress = {
+          updateScrapingProgress({
             currentDay: i + 1,
-            totalDays: days
-          };
+            totalDays: days,
+            currentDate: date,
+            logs: [`Processing day ${i + 1}/${days}: ${date}`]
+          });
           
           // Scrape for this day
           const dayResult = await scrapeForDay(i);
           totalPapers += dayResult;
+          
+          // Update total papers so far
+          updateScrapingProgress({
+            papersSoFar: totalPapers,
+            logs: [`Day ${i + 1}/${days} complete. Found ${dayResult} papers. Total so far: ${totalPapers}`]
+          });
           
           // Small delay to prevent overwhelming the server
           if (i < days - 1) {
@@ -172,17 +226,19 @@ async function scrapeByDaysInBackground(days: number) {
           totalPapers,
           daysProcessed: days
         };
-        scrapingStatus.progress = null;
         
-        console.log(`Completed scraping for ${days} days. Total papers: ${totalPapers}`);
+        const completionMessage = `Completed scraping for ${days} days. Total papers: ${totalPapers}`;
+        console.log(completionMessage);
+        updateScrapingProgress({ logs: [completionMessage] });
       } catch (error) {
         // Update status with error
         scrapingStatus.isRunning = false;
         scrapingStatus.endTime = new Date().toISOString();
         scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
-        scrapingStatus.progress = null;
         
-        console.error('Error in background scraping:', error);
+        const errorMessage = `Error in background scraping: ${scrapingStatus.lastError}`;
+        console.error(errorMessage);
+        updateScrapingProgress({ logs: [errorMessage] });
       }
     };
     
@@ -195,9 +251,11 @@ async function scrapeByDaysInBackground(days: number) {
     scrapingStatus.isRunning = false;
     scrapingStatus.endTime = new Date().toISOString();
     scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
-    scrapingStatus.progress = null;
     
-    console.error('Error starting background scraping:', error);
+    const errorMessage = `Error starting background scraping: ${scrapingStatus.lastError}`;
+    console.error(errorMessage);
+    updateScrapingProgress({ logs: [errorMessage] });
+    
     return false;
   }
 }
@@ -205,26 +263,47 @@ async function scrapeByDaysInBackground(days: number) {
 // Function to scrape new papers in the background
 async function scrapeNewInBackground() {
   try {
+    // Initialize progress
+    updateScrapingProgress({
+      currentDay: 0,
+      totalDays: 0,
+      papersSoFar: 0,
+      logs: ['Starting to scrape new papers...']
+    });
+    
     // Start the scraping process in the background
     const scrapeWithProgress = async () => {
       try {
-        const result = await scrapeNewPapers();
+        // Get the most recent paper date from the database
+        const { getMostRecentPaperDate } = require('@/lib/scraper');
+        const mostRecentDate = await getMostRecentPaperDate();
         
-        // Update status on completion
-        scrapingStatus.isRunning = false;
-        scrapingStatus.endTime = new Date().toISOString();
-        scrapingStatus.lastResult = result;
-        scrapingStatus.progress = null;
+        // Calculate the number of days to scrape
+        const dayjs = require('dayjs');
+        const today = dayjs().format('YYYY-MM-DD');
+        const dayDiff = dayjs(today).diff(dayjs(mostRecentDate), 'day');
         
-        console.log(`Completed scraping new papers. Total papers: ${result.totalPapers}`);
+        // If the most recent paper is from today, we'll still check today again
+        // to make sure we have all the latest papers
+        const daysToScrape = Math.max(1, dayDiff);
+        
+        updateScrapingProgress({
+          totalDays: daysToScrape,
+          logs: [`Most recent paper date in database: ${mostRecentDate}. Will scrape ${daysToScrape} days.`]
+        });
+        
+        // Now use the scrapeByDaysInBackground function to do the actual scraping
+        scrapingStatus.daysToScrape = daysToScrape;
+        await scrapeByDaysInBackground(daysToScrape);
       } catch (error) {
         // Update status with error
         scrapingStatus.isRunning = false;
         scrapingStatus.endTime = new Date().toISOString();
         scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
-        scrapingStatus.progress = null;
         
-        console.error('Error in background scraping:', error);
+        const errorMessage = `Error in background scraping: ${scrapingStatus.lastError}`;
+        console.error(errorMessage);
+        updateScrapingProgress({ logs: [errorMessage] });
       }
     };
     
@@ -238,7 +317,10 @@ async function scrapeNewInBackground() {
     scrapingStatus.endTime = new Date().toISOString();
     scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
     
-    console.error('Error starting background scraping:', error);
+    const errorMessage = `Error starting background scraping: ${scrapingStatus.lastError}`;
+    console.error(errorMessage);
+    updateScrapingProgress({ logs: [errorMessage] });
+    
     return false;
   }
 }
@@ -257,10 +339,10 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
       currentDay: dayOffset + 1,
       totalDays: scrapingStatus.daysToScrape || 1,
       currentBatch: 0,
-      totalBatches: 0
+      totalBatches: 0,
+      currentDate: date,
+      logs: [`Scraping for day ${dayOffset + 1}/${scrapingStatus.daysToScrape}: ${date}`]
     });
-    
-    console.log(`Scraping for day ${dayOffset + 1}/${scrapingStatus.daysToScrape}: ${date}`);
     
     // Import the scraper functions directly to avoid circular dependencies
     const { scrapePapers, savePapers } = require('@/lib/scraper');
@@ -270,6 +352,10 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
       const papers = await scrapePapers(date);
       
       if (papers.length > 0) {
+        updateScrapingProgress({
+          logs: [`Found ${papers.length} papers for date: ${date}`]
+        });
+        
         // Calculate batches for progress tracking
         const batchSize = 20;
         const totalBatches = Math.ceil(papers.length / batchSize);
@@ -281,15 +367,14 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
             currentDay: dayOffset + 1,
             totalDays: scrapingStatus.daysToScrape || 1,
             currentBatch: i + 1,
-            totalBatches
+            totalBatches,
+            logs: [`Saving batch ${i + 1}/${totalBatches} (${Math.min(batchSize, papers.length - i * batchSize)} papers) for day ${date}`]
           });
           
           // Get the current batch
           const start = i * batchSize;
           const end = Math.min(start + batchSize, papers.length);
           const batch = papers.slice(start, end);
-          
-          console.log(`Saving batch ${i + 1}/${totalBatches} (${batch.length} papers) for day ${date}`);
           
           // Save this batch
           await savePapers(batch);
@@ -299,17 +384,27 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         }
+        
+        updateScrapingProgress({
+          logs: [`Successfully saved all ${papers.length} papers for date: ${date}`]
+        });
       } else {
-        console.log(`No papers found for date: ${date}`);
+        updateScrapingProgress({
+          logs: [`No papers found for date: ${date}`]
+        });
       }
       
       return papers.length;
     } catch (error) {
-      console.error(`Error processing papers for date ${date}:`, error);
+      const errorMessage = `Error processing papers for date ${date}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.error(errorMessage);
+      updateScrapingProgress({ logs: [errorMessage] });
       return 0;
     }
   } catch (error) {
-    console.error(`Error scraping for day offset ${dayOffset}:`, error);
+    const errorMessage = `Error scraping for day offset ${dayOffset}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    console.error(errorMessage);
+    updateScrapingProgress({ logs: [errorMessage] });
     return 0;
   }
 } 

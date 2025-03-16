@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Terminal } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 // Define the scraping status type
 interface ScrapingStatus {
@@ -23,6 +24,9 @@ interface ScrapingStatus {
     totalDays: number;
     currentBatch?: number;
     totalBatches?: number;
+    papersSoFar?: number;
+    currentDate?: string;
+    logs?: string[];
   } | null;
 }
 
@@ -205,8 +209,8 @@ export default function AdminDashboard() {
   const handleScrapeByDays = async () => {
     // Validate days input
     const days = parseInt(daysToScrape) || 7;
-    if (days > 30) {
-      setScrapingMessage("Error: Maximum scraping period is 30 days to prevent timeouts. Please enter a smaller number.");
+    if (days > 365) {
+      setScrapingMessage("Error: Maximum scraping period is 365 days. Please enter a smaller number.");
       return;
     }
     
@@ -225,7 +229,7 @@ export default function AdminDashboard() {
       
       if (!response.ok) {
         if (response.status === 504) {
-          throw new Error("Request timed out. Try scraping fewer days (maximum recommended: 30 days).");
+          throw new Error("Request timed out. The scraping process will continue in the background.");
         }
         throw new Error(`Server responded with status: ${response.status}`);
       }
@@ -234,7 +238,7 @@ export default function AdminDashboard() {
       try {
         data = await response.json();
       } catch (jsonError) {
-        throw new Error("Server response was not valid JSON. The request likely timed out.");
+        throw new Error("Server response was not valid JSON. The request likely timed out, but the scraping process may continue in the background.");
       }
       
       if (data.message) {
@@ -246,7 +250,10 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Failed to scrape papers:', error);
       setScrapingMessage(`An error occurred while scraping papers: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setIsScraping(false);
+      
+      // Even if there was an error in the initial request, we should still poll for status
+      // as the scraping might be running in the background
+      startStatusPolling();
     }
   };
 
@@ -266,6 +273,15 @@ export default function AdminDashboard() {
     const { currentDay, totalDays } = scrapingStatus.progress;
     return Math.round((currentDay / totalDays) * 100);
   };
+
+  // Scroll to bottom of logs automatically
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [scrapingStatus.progress?.logs]);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -309,11 +325,11 @@ export default function AdminDashboard() {
                       value={daysToScrape}
                       onChange={(e) => setDaysToScrape(e.target.value)}
                       min="1"
-                      max="30"
+                      max="365"
                       className="w-24"
                     />
                     <span>days</span>
-                    <span className="text-xs text-gray-500">(max: 30)</span>
+                    <span className="text-xs text-gray-500">(max: 365)</span>
                   </div>
                   <Button 
                     onClick={handleScrapeByDays} 
@@ -362,7 +378,7 @@ export default function AdminDashboard() {
             )}
             
             {scrapingStatus.isRunning && (
-              <Card className="mt-6">
+              <Card className="mt-6 col-span-1 md:col-span-2">
                 <CardHeader>
                   <CardTitle>Scraping Status</CardTitle>
                   <CardDescription>
@@ -377,13 +393,58 @@ export default function AdminDashboard() {
                   
                   {scrapingStatus.progress && (
                     <>
-                      <Progress value={calculateProgress()} className="w-full" />
-                      <div className="text-sm text-center">
-                        Processing day {scrapingStatus.progress.currentDay} of {scrapingStatus.progress.totalDays}
-                        {scrapingStatus.progress.currentBatch && (
-                          <span> (Batch {scrapingStatus.progress.currentBatch} of {scrapingStatus.progress.totalBatches})</span>
+                      <div className="flex justify-between items-center">
+                        <Progress value={calculateProgress()} className="w-full" />
+                        <span className="ml-2 text-sm font-medium">{calculateProgress()}%</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="bg-gray-50 p-3 rounded-md">
+                          <p className="text-xs text-gray-500">Day</p>
+                          <p className="font-medium">{scrapingStatus.progress.currentDay} of {scrapingStatus.progress.totalDays}</p>
+                        </div>
+                        
+                        {scrapingStatus.progress.currentDate && (
+                          <div className="bg-gray-50 p-3 rounded-md">
+                            <p className="text-xs text-gray-500">Current Date</p>
+                            <p className="font-medium">{scrapingStatus.progress.currentDate}</p>
+                          </div>
+                        )}
+                        
+                        {scrapingStatus.progress.papersSoFar !== undefined && (
+                          <div className="bg-gray-50 p-3 rounded-md">
+                            <p className="text-xs text-gray-500">Papers Found</p>
+                            <p className="font-medium">{scrapingStatus.progress.papersSoFar}</p>
+                          </div>
+                        )}
+                        
+                        {scrapingStatus.progress.currentBatch && scrapingStatus.progress.totalBatches && (
+                          <div className="bg-gray-50 p-3 rounded-md">
+                            <p className="text-xs text-gray-500">Current Batch</p>
+                            <p className="font-medium">{scrapingStatus.progress.currentBatch} of {scrapingStatus.progress.totalBatches}</p>
+                          </div>
                         )}
                       </div>
+                      
+                      {/* Log Window */}
+                      {scrapingStatus.progress.logs && scrapingStatus.progress.logs.length > 0 && (
+                        <div className="mt-4">
+                          <div className="flex items-center mb-2">
+                            <Terminal className="h-4 w-4 mr-2" />
+                            <h3 className="text-sm font-medium">Scraping Logs</h3>
+                          </div>
+                          <div className="bg-gray-900 text-gray-100 rounded-md p-3 text-xs">
+                            <ScrollArea className="h-[200px]">
+                              {scrapingStatus.progress.logs.map((log, index) => (
+                                <div key={index} className="py-1">
+                                  <span className="text-gray-400">[{new Date().toLocaleTimeString()}]</span> {log}
+                                </div>
+                              ))}
+                              <div ref={logsEndRef} />
+                            </ScrollArea>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
                 </CardContent>

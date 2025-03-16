@@ -176,8 +176,8 @@ export async function savePapers(papers: Paper[]): Promise<void> {
 export async function scrapeMultipleDays(days: number = 7): Promise<{ totalPapers: number, daysProcessed: number }> {
   console.log(`Starting to scrape papers for the last ${days} days...`);
   
-  // Enforce maximum days limit
-  const limitedDays = Math.min(30, days);
+  // Enforce maximum days limit of 365 days
+  const limitedDays = Math.min(365, days);
   if (limitedDays < days) {
     console.log(`Limiting scraping to ${limitedDays} days (from ${days} days) to prevent excessive scraping`);
   }
@@ -264,8 +264,8 @@ export async function scrapeNewPapers(): Promise<{ totalPapers: number, daysProc
   // to make sure we have all the latest papers
   const daysToScrape = Math.max(1, dayDiff);
   
-  // Limit to 30 days maximum to prevent excessive scraping
-  const limitedDaysToScrape = Math.min(30, daysToScrape);
+  // Limit to 365 days maximum to prevent excessive scraping
+  const limitedDaysToScrape = Math.min(365, daysToScrape);
   if (limitedDaysToScrape < daysToScrape) {
     console.log(`Limiting scraping to ${limitedDaysToScrape} days (from ${daysToScrape} days) to prevent excessive scraping`);
   }
