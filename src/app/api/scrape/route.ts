@@ -18,8 +18,8 @@ const scrapingStatus = {
   } | null
 };
 
-// Helper function to update progress
-export function updateScrapingProgress(progress: typeof scrapingStatus.progress) {
+// Helper function to update progress (not exported)
+function updateScrapingProgress(progress: typeof scrapingStatus.progress) {
   scrapingStatus.progress = progress;
 }
 
@@ -253,13 +253,12 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
     const date = dayjs().subtract(dayOffset, 'day').format('YYYY-MM-DD');
     
     // Update progress with more details
-    scrapingStatus.progress = {
-      ...scrapingStatus.progress,
+    updateScrapingProgress({
       currentDay: dayOffset + 1,
       totalDays: scrapingStatus.daysToScrape || 1,
       currentBatch: 0,
       totalBatches: 0
-    };
+    });
     
     console.log(`Scraping for day ${dayOffset + 1}/${scrapingStatus.daysToScrape}: ${date}`);
     
@@ -278,11 +277,12 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
         // Process in batches
         for (let i = 0; i < totalBatches; i++) {
           // Update progress before saving this batch
-          scrapingStatus.progress = {
-            ...scrapingStatus.progress,
+          updateScrapingProgress({
+            currentDay: dayOffset + 1,
+            totalDays: scrapingStatus.daysToScrape || 1,
             currentBatch: i + 1,
             totalBatches
-          };
+          });
           
           // Get the current batch
           const start = i * batchSize;

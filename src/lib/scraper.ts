@@ -190,18 +190,8 @@ export async function scrapeMultipleDays(days: number = 7): Promise<{ totalPaper
     console.log(`Processing day ${i + 1}/${limitedDays}: ${date}`);
     
     try {
-      // Update progress if the updateScrapingProgress function is available
-      try {
-        const { updateScrapingProgress } = require('@/app/api/scrape/route');
-        updateScrapingProgress({
-          currentDay: i + 1,
-          totalDays: limitedDays,
-          currentBatch: 0,
-          totalBatches: 0
-        });
-      } catch (e) {
-        // Ignore if the function is not available
-      }
+      // Log progress instead of trying to update it through a function
+      console.log(`Progress: ${i + 1}/${limitedDays} days`);
       
       const papers = await scrapePapers(date);
       totalPapers += papers.length;
