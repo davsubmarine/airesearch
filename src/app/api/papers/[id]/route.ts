@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 interface Params {
   params: {
@@ -9,36 +9,39 @@ interface Params {
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const paperId = params.id;
+    const paperId = await Promise.resolve(params.id);
     
     if (!paperId) {
       return NextResponse.json(
-        { success: false, error: 'Paper ID is required' },
+        { error: 'Paper ID is required' },
         { status: 400 }
       );
     }
-    
-    const { data: summary, error } = await supabaseAdmin
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const { data: summary, error } = await supabase
       .from('summaries')
       .select('*')
       .eq('paper_id', paperId)
       .single();
-    
+
     if (error) {
+      console.error('Error fetching summary:', error);
       return NextResponse.json(
-        { success: false, error: error.message },
+        { error: 'Failed to fetch summary' },
         { status: 500 }
       );
     }
-    
-    return NextResponse.json({
-      success: true,
-      summary
-    });
-  } catch (err) {
-    console.error('Error fetching paper summary:', err);
+
+    return NextResponse.json(summary);
+  } catch (error) {
+    console.error('Error in GET /api/papers/[id]:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch paper summary' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
