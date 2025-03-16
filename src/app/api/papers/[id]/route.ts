@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-interface Params {
-  params: {
-    id: string;
-  };
-}
+// Update the Params interface to match Next.js conventions
+type RouteParams = {
+  id: string;
+};
 
-export async function GET(request: Request, { params }: Params) {
+// Update the function signature to use the correct parameter structure
+export async function GET(
+  request: Request, 
+  { params }: { params: RouteParams }
+) {
   try {
     const paperId = params.id;
     
