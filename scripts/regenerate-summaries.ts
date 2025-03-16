@@ -51,7 +51,7 @@ async function regenerateSummaries() {
           console.log(`Regenerating summary for paper: ${paper.title}`);
           
           // Generate a new summary with the updated structure
-          const summary = await generateSummary(paper as Paper);
+          const summary = await generateSummary(paper.url);
           
           if (!summary) {
             throw new Error('Failed to generate summary');
