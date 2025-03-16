@@ -1,18 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-// Update the Params interface to match Next.js conventions
-type RouteParams = {
-  id: string;
-};
-
-// Update the function signature to use the correct parameter structure
+// Define the route handler according to Next.js 15 conventions
 export async function GET(
-  request: Request, 
-  { params }: { params: RouteParams }
+  request: NextRequest,
+  context: { params: { id: string } }
 ) {
   try {
-    const paperId = params.id;
+    const paperId = context.params.id;
     
     if (!paperId) {
       return NextResponse.json(
