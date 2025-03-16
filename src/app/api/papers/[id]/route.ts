@@ -4,12 +4,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 // Define the route handler according to Next.js 15 conventions
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const paperId = context.params.id;
+    // Need to await params in Next.js 15
+    const { id } = await params;
     
-    if (!paperId) {
+    if (!id) {
       return NextResponse.json(
         { success: false, error: 'Paper ID is required' },
         { status: 400 }
@@ -19,7 +20,7 @@ export async function GET(
     const { data: summary, error } = await supabaseAdmin
       .from('summaries')
       .select('*')
-      .eq('paper_id', paperId)
+      .eq('paper_id', id)
       .single();
     
     if (error) {
