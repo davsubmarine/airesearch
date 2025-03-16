@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-scroll-area": "^1.2.3",
     "@supabase/supabase-js": "^2.49.1",
     "@types/pg": "^8.11.11",
     "@types/uuid": "^10.0.0",
