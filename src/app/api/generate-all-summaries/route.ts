@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateSummary } from '@/lib/openai';
 
@@ -13,33 +12,40 @@ async function cleanupDatabase() {
     const { error: deleteError } = await supabaseAdmin
       .from('summaries')
       .delete()
-      .neq('id', 'dummy'); // This will match all rows
+      .neq('id', 'dummy');
 
     if (deleteError) {
       console.error('Error deleting summaries:', deleteError);
-      return false;
+      throw deleteError;
     }
 
-    // Then reset has_summary flag for all papers
+    // Then, update all papers to set has_summary = false
     const { error: updateError } = await supabaseAdmin
       .from('papers')
       .update({ has_summary: false })
-      .neq('id', 'dummy'); // This will match all rows
+      .neq('id', 'dummy');
 
     if (updateError) {
       console.error('Error updating papers:', updateError);
-      return false;
+      throw updateError;
     }
 
     console.log('Successfully cleaned up database - all summaries deleted and papers reset');
-    return true;
-  } catch (err) {
-    console.error('Error in cleanupDatabase:', err);
-    return false;
+  } catch (error) {
+    console.error('Error in cleanupDatabase:', error);
+    throw error;
   }
 }
 
-async function processPaperBatch(papers: any[]) {
+async function processPaperBatch(papers: { 
+  id: string; 
+  url: string; 
+  title?: string; 
+  abstract?: string;
+  authors?: string[];
+  has_summary?: boolean;
+  // Add any other properties used in the function
+}[]) {
   return await Promise.all(papers.map(async (paper) => {
     try {
       console.log(`Generating summary for paper ${paper.id}: ${paper.title}`);
@@ -142,8 +148,11 @@ async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
+    // Clean up the database first
+    await cleanupDatabase();
+    
     // Get all papers without summaries
     const { data: papers, error: papersError } = await supabaseAdmin
       .from('papers')
