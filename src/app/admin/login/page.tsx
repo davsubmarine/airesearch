@@ -26,9 +26,8 @@ export default function AdminLogin() {
       } else {
         setError('Invalid credentials');
       }
-    } catch (error) {
-      console.error('Login failed:', error);
-      setError('Invalid credentials');
+    } catch (err) {
+      setError('An error occurred. Please try again.');
     }
   };
 

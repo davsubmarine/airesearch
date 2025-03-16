@@ -87,7 +87,7 @@ export default function AdminDashboard() {
             
             <div className="mb-6">
               <p className="text-gray-600 mb-4">
-                Click the button below to generate summaries for all papers that don&apos;t have one yet.
+                Click the button below to generate summaries for all papers that don't have one yet.
                 This process uses OpenAI to create summaries and may take some time.
               </p>
               <button
@@ -111,7 +111,7 @@ export default function AdminDashboard() {
 
             {isGenerating && (
               <div className="mb-4 p-4 bg-yellow-50 text-yellow-700 rounded-md">
-                Generating summaries... This may take a while. Please don&apos;t close this page.
+                Generating summaries... This may take a while. Please don't close this page.
               </div>
             )}
 
