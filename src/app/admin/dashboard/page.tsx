@@ -26,7 +26,7 @@ interface ScrapingStatus {
     totalBatches?: number;
     papersSoFar?: number;
     currentDate?: string;
-    logs?: string[];
+    logs?: Array<{timestamp: string; message: string}>;
   } | null;
 }
 
@@ -429,17 +429,37 @@ export default function AdminDashboard() {
                       {/* Log Window */}
                       {scrapingStatus.progress.logs && scrapingStatus.progress.logs.length > 0 && (
                         <div className="mt-4">
-                          <div className="flex items-center mb-2">
-                            <Terminal className="h-4 w-4 mr-2" />
-                            <h3 className="text-sm font-medium">Scraping Logs</h3>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center">
+                              <Terminal className="h-4 w-4 mr-2" />
+                              <h3 className="text-sm font-medium">Scraping Logs</h3>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {scrapingStatus.progress.logs.length} log entries
+                            </div>
                           </div>
                           <div className="bg-gray-900 text-gray-100 rounded-md p-3 text-xs">
-                            <ScrollArea className="h-[200px]">
-                              {scrapingStatus.progress.logs.map((log, index) => (
-                                <div key={index} className="py-1">
-                                  <span className="text-gray-400">[{new Date().toLocaleTimeString()}]</span> {log}
-                                </div>
-                              ))}
+                            <ScrollArea className="h-[300px]">
+                              {scrapingStatus.progress.logs.map((log, index) => {
+                                // Format the timestamp for display
+                                const timestamp = new Date(log.timestamp);
+                                const formattedTime = timestamp.toLocaleTimeString();
+                                
+                                return (
+                                  <div key={index} className="py-1 border-b border-gray-800 last:border-0">
+                                    <span className="text-gray-400">[{formattedTime}]</span>{' '}
+                                    <span className={
+                                      log.message.includes('Error') || log.message.includes('error') 
+                                        ? 'text-red-400' 
+                                        : log.message.includes('Success') || log.message.includes('Completed')
+                                          ? 'text-green-400'
+                                          : 'text-gray-100'
+                                    }>
+                                      {log.message}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                               <div ref={logsEndRef} />
                             </ScrollArea>
                           </div>
