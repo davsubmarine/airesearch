@@ -1,7 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+
+// Define the scraping status type
+interface ScrapingStatus {
+  isRunning: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  lastError: string | null;
+  mode: string | null;
+  daysToScrape: number | null;
+  lastResult: { totalPapers: number; daysProcessed: number } | null;
+  progress?: { 
+    currentDay: number; 
+    totalDays: number;
+    currentBatch?: number;
+    totalBatches?: number;
+  } | null;
+}
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -21,6 +44,85 @@ export default function AdminDashboard() {
     totalPapers?: number;
     daysProcessed?: number;
   } | null>(null);
+  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>({
+    isRunning: false,
+    startTime: null,
+    endTime: null,
+    lastError: null,
+    mode: null,
+    daysToScrape: null,
+    lastResult: null,
+    progress: null
+  });
+  const [statusPollingInterval, setStatusPollingInterval] = useState<NodeJS.Timeout | null>(null);
+
+  // Poll for scraping status when scraping is in progress
+  useEffect(() => {
+    // Clear any existing interval when component unmounts or when isScraping changes
+    return () => {
+      if (statusPollingInterval) {
+        clearInterval(statusPollingInterval);
+      }
+    };
+  }, [statusPollingInterval]);
+
+  // Function to start polling for status
+  const startStatusPolling = () => {
+    // Clear any existing interval
+    if (statusPollingInterval) {
+      clearInterval(statusPollingInterval);
+    }
+
+    // Check status immediately
+    checkScrapingStatus();
+
+    // Set up polling every 3 seconds
+    const interval = setInterval(() => {
+      checkScrapingStatus();
+    }, 3000);
+
+    setStatusPollingInterval(interval);
+  };
+
+  // Function to check scraping status
+  const checkScrapingStatus = async () => {
+    try {
+      const response = await fetch('/api/scrape?status=true');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch scraping status');
+      }
+      
+      const data = await response.json();
+      
+      setScrapingStatus(data);
+      
+      // If scraping was running but is now complete
+      if (isScraping && data.isRunning === false && data.endTime) {
+        setIsScraping(false);
+        
+        if (data.lastError) {
+          setScrapingMessage(`Error during scraping: ${data.lastError}`);
+        } else if (data.lastResult) {
+          if (data.mode === 'new' && data.lastResult.totalPapers !== undefined) {
+            setScrapingMessage(`Completed scraping ${data.lastResult.totalPapers} new papers across ${data.lastResult.daysProcessed} days.`);
+            setScrapingResult(data.lastResult);
+          } else if (data.mode === 'days') {
+            setScrapingMessage(`Completed scraping for the last ${data.daysToScrape} days.`);
+          }
+        }
+        
+        // Stop polling when scraping is complete
+        if (statusPollingInterval) {
+          clearInterval(statusPollingInterval);
+          setStatusPollingInterval(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check scraping status:', error);
+      // Don't stop polling on error, just log it
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -81,19 +183,21 @@ export default function AdminDashboard() {
         body: JSON.stringify({ mode: 'new' }),
       });
       
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.message) {
         setScrapingMessage(data.message);
       }
       
-      if (data.result) {
-        setScrapingResult(data.result);
-      }
+      // Start polling for status updates
+      startStatusPolling();
     } catch (error) {
       console.error('Failed to scrape new papers:', error);
-      setScrapingMessage('An error occurred while scraping new papers');
-    } finally {
+      setScrapingMessage(`An error occurred while scraping new papers: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsScraping(false);
     }
   };
@@ -112,17 +216,40 @@ export default function AdminDashboard() {
         body: JSON.stringify({ mode: 'days', days: daysToScrape }),
       });
       
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.message) {
         setScrapingMessage(data.message);
       }
+      
+      // Start polling for status updates
+      startStatusPolling();
     } catch (error) {
       console.error('Failed to scrape papers:', error);
-      setScrapingMessage('An error occurred while scraping papers');
-    } finally {
+      setScrapingMessage(`An error occurred while scraping papers: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsScraping(false);
     }
+  };
+
+  // Check scraping status on initial load
+  useEffect(() => {
+    checkScrapingStatus();
+  }, []);
+
+  const formatTime = (timeString: string | null) => {
+    if (!timeString) return 'N/A';
+    const date = new Date(timeString);
+    return date.toLocaleTimeString();
+  };
+
+  const calculateProgress = () => {
+    if (!scrapingStatus.progress) return 0;
+    const { currentDay, totalDays } = scrapingStatus.progress;
+    return Math.round((currentDay / totalDays) * 100);
   };
 
   return (
@@ -153,60 +280,63 @@ export default function AdminDashboard() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Scrape by Days */}
-              <div className="bg-gray-50 p-6 rounded-lg">
-                <h3 className="text-lg font-semibold mb-3">Scrape by Days</h3>
-                <p className="text-gray-600 mb-4">
-                  Scrape papers from the last X days. Enter the number of days to scrape.
-                </p>
-                
-                <div className="flex items-end space-x-4 mb-4">
-                  <div>
-                    <label htmlFor="daysToScrape" className="block text-sm font-medium text-gray-700 mb-1">
-                      Number of Days
-                    </label>
-                    <input
+              <Card>
+                <CardHeader>
+                  <CardTitle>Scrape by Days</CardTitle>
+                  <CardDescription>
+                    Scrape papers for a specific number of days in the past.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <Input
                       type="number"
-                      id="daysToScrape"
-                      min="1"
-                      max="30"
                       value={daysToScrape}
                       onChange={(e) => setDaysToScrape(e.target.value)}
-                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                      min="1"
+                      max="30"
+                      className="w-24"
                     />
+                    <span>days</span>
                   </div>
-                  <button
-                    onClick={handleScrapeByDays}
-                    disabled={isScraping}
-                    className={`px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
-                      isScraping 
-                        ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-indigo-600 hover:bg-indigo-700'
-                    } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                  <Button 
+                    onClick={handleScrapeByDays} 
+                    disabled={isScraping || scrapingStatus.isRunning}
+                    className="w-full"
                   >
-                    {isScraping ? 'Scraping...' : 'Scrape Papers'}
-                  </button>
-                </div>
-              </div>
+                    {isScraping || scrapingStatus.mode === 'days' ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Scraping by Days...
+                      </>
+                    ) : 'Scrape by Days'}
+                  </Button>
+                </CardContent>
+              </Card>
               
               {/* Scrape New Papers */}
-              <div className="bg-gray-50 p-6 rounded-lg">
-                <h3 className="text-lg font-semibold mb-3">Scrape New Papers</h3>
-                <p className="text-gray-600 mb-4">
-                  Scrape all new papers since the most recent paper in the database.
-                </p>
-                
-                <button
-                  onClick={handleScrapeNewPapers}
-                  disabled={isScraping}
-                  className={`px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
-                    isScraping 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-indigo-600 hover:bg-indigo-700'
-                  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
-                >
-                  {isScraping ? 'Scraping...' : 'Scrape New Papers'}
-                </button>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Scrape New Papers</CardTitle>
+                  <CardDescription>
+                    Scrape papers that have been published since the most recent paper in the database.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button 
+                    onClick={handleScrapeNewPapers} 
+                    disabled={isScraping || scrapingStatus.isRunning}
+                    className="w-full"
+                  >
+                    {isScraping || scrapingStatus.mode === 'new' ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Scraping New Papers...
+                      </>
+                    ) : 'Scrape New Papers'}
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
             
             {scrapingMessage && (
@@ -215,10 +345,33 @@ export default function AdminDashboard() {
               </div>
             )}
             
-            {isScraping && (
-              <div className="mt-6 p-4 bg-yellow-50 text-yellow-700 rounded-md">
-                Scraping papers... This may take a while. Please don't close this page.
-              </div>
+            {scrapingStatus.isRunning && (
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle>Scraping Status</CardTitle>
+                  <CardDescription>
+                    Current progress of the scraping operation
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-between text-sm">
+                    <span>Mode: {scrapingStatus.mode}</span>
+                    <span>Started at: {formatTime(scrapingStatus.startTime)}</span>
+                  </div>
+                  
+                  {scrapingStatus.progress && (
+                    <>
+                      <Progress value={calculateProgress()} className="w-full" />
+                      <div className="text-sm text-center">
+                        Processing day {scrapingStatus.progress.currentDay} of {scrapingStatus.progress.totalDays}
+                        {scrapingStatus.progress.currentBatch && (
+                          <span> (Batch {scrapingStatus.progress.currentBatch} of {scrapingStatus.progress.totalBatches})</span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             )}
             
             {scrapingResult && (
@@ -270,7 +423,13 @@ export default function AdminDashboard() {
 
             {isGenerating && (
               <div className="mb-4 p-4 bg-yellow-50 text-yellow-700 rounded-md">
-                Generating summaries... This may take a while. Please don't close this page.
+                <div className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Generating summaries... This may take a while. Please don't close this page.</span>
+                </div>
               </div>
             )}
 

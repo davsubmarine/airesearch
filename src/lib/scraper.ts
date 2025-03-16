@@ -39,8 +39,13 @@ export async function scrapePapers(date: string): Promise<Paper[]> {
     
     console.log(`Scraping papers for date: ${formattedDate} from ${url}`);
     
-    // Fetch the page
-    const response = await axios.get(url);
+    // Fetch the page with a timeout
+    const response = await axios.get(url, { 
+      timeout: 30000, // 30 second timeout
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
     
     // Check if we were redirected (happens for future dates or dates with no papers)
     const finalUrl = response.request?.res?.responseUrl || url;
@@ -105,7 +110,13 @@ export async function scrapePapers(date: string): Promise<Paper[]> {
     
     return papers;
   } catch (error) {
-    console.error(`Error scraping papers for date ${date}:`, error);
+    if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+      console.error(`Timeout error scraping papers for date ${date}: Request took too long`);
+    } else if (axios.isAxiosError(error) && error.response) {
+      console.error(`Error scraping papers for date ${date}: Server responded with status ${error.response.status}`);
+    } else {
+      console.error(`Error scraping papers for date ${date}:`, error);
+    }
     return [];
   }
 }
@@ -122,15 +133,37 @@ export async function savePapers(papers: Paper[]): Promise<void> {
     
     console.log(`Saving ${papers.length} papers to the database...`);
     
-    const { error } = await supabaseAdmin
-      .from(Tables.papers)
-      .upsert(papers, { onConflict: 'id' });
+    // Save papers in batches to avoid timeouts
+    const batchSize = 20;
+    const batches = [];
     
-    if (error) {
-      console.error('Error saving papers:', error);
-    } else {
-      console.log(`Successfully saved ${papers.length} papers`);
+    for (let i = 0; i < papers.length; i += batchSize) {
+      batches.push(papers.slice(i, i + batchSize));
     }
+    
+    console.log(`Split ${papers.length} papers into ${batches.length} batches of max ${batchSize} papers each`);
+    
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      console.log(`Saving batch ${i + 1}/${batches.length} (${batch.length} papers)...`);
+      
+      const { error } = await supabaseAdmin
+        .from(Tables.papers)
+        .upsert(batch, { onConflict: 'id' });
+      
+      if (error) {
+        console.error(`Error saving batch ${i + 1}:`, error);
+      } else {
+        console.log(`Successfully saved batch ${i + 1} (${batch.length} papers)`);
+      }
+      
+      // Add a small delay between batches
+      if (i < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    console.log(`Completed saving all ${papers.length} papers`);
   } catch (error) {
     console.error('Error saving papers:', error);
   }
@@ -143,23 +176,31 @@ export async function savePapers(papers: Paper[]): Promise<void> {
 export async function scrapeMultipleDays(days: number = 7): Promise<void> {
   console.log(`Starting to scrape papers for the last ${days} days...`);
   
+  let totalPapers = 0;
+  
   for (let i = 0; i < days; i++) {
     const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
     console.log(`Processing day ${i + 1}/${days}: ${date}`);
     
-    const papers = await scrapePapers(date);
-    
-    if (papers.length > 0) {
-      await savePapers(papers);
-    }
-    
-    // Add a small delay to avoid overwhelming the server
-    if (i < days - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const papers = await scrapePapers(date);
+      totalPapers += papers.length;
+      
+      if (papers.length > 0) {
+        await savePapers(papers);
+      }
+      
+      // Add a small delay to avoid overwhelming the server
+      if (i < days - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.error(`Error processing day ${date}:`, error);
+      // Continue with the next day even if there's an error
     }
   }
   
-  console.log('Completed scraping for all days');
+  console.log(`Completed scraping for all ${days} days. Total papers scraped: ${totalPapers}`);
 }
 
 /**
@@ -211,27 +252,38 @@ export async function scrapeNewPapers(): Promise<{ totalPapers: number, daysProc
   // to make sure we have all the latest papers
   const daysToScrape = Math.max(1, dayDiff);
   
-  console.log(`Scraping papers for the last ${daysToScrape} days...`);
+  // Limit to 30 days maximum to prevent excessive scraping
+  const limitedDaysToScrape = Math.min(30, daysToScrape);
+  if (limitedDaysToScrape < daysToScrape) {
+    console.log(`Limiting scraping to ${limitedDaysToScrape} days (from ${daysToScrape} days) to prevent excessive scraping`);
+  }
+  
+  console.log(`Scraping papers for the last ${limitedDaysToScrape} days...`);
   
   let totalPapers = 0;
   
-  for (let i = 0; i < daysToScrape; i++) {
+  for (let i = 0; i < limitedDaysToScrape; i++) {
     const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    console.log(`Processing day ${i + 1}/${daysToScrape}: ${date}`);
+    console.log(`Processing day ${i + 1}/${limitedDaysToScrape}: ${date}`);
     
-    const papers = await scrapePapers(date);
-    totalPapers += papers.length;
-    
-    if (papers.length > 0) {
-      await savePapers(papers);
-    }
-    
-    // Add a small delay to avoid overwhelming the server
-    if (i < daysToScrape - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const papers = await scrapePapers(date);
+      totalPapers += papers.length;
+      
+      if (papers.length > 0) {
+        await savePapers(papers);
+      }
+      
+      // Add a small delay to avoid overwhelming the server
+      if (i < limitedDaysToScrape - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.error(`Error processing day ${date}:`, error);
+      // Continue with the next day even if there's an error
     }
   }
   
   console.log(`Completed scraping new papers. Total papers scraped: ${totalPapers}`);
-  return { totalPapers, daysProcessed: daysToScrape };
+  return { totalPapers, daysProcessed: limitedDaysToScrape };
 } 

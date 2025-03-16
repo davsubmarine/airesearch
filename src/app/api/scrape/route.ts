@@ -1,88 +1,272 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { scrapeMultipleDays, scrapeNewPapers } from '@/lib/scraper';
 
-export async function GET(request: Request) {
+// Global object to track scraping status
+const scrapingStatus = {
+  isRunning: false,
+  startTime: null as string | null,
+  endTime: null as string | null,
+  lastError: null as string | null,
+  mode: null as string | null,
+  daysToScrape: null as number | null,
+  lastResult: null as { totalPapers: number; daysProcessed: number } | null,
+  progress: null as { 
+    currentDay: number; 
+    totalDays: number;
+    currentBatch?: number;
+    totalBatches?: number;
+  } | null
+};
+
+// Helper function to update progress
+export function updateScrapingProgress(progress: typeof scrapingStatus.progress) {
+  scrapingStatus.progress = progress;
+}
+
+export async function GET(request: NextRequest) {
+  // Check if this is a status request
+  const { searchParams } = new URL(request.url);
+  const statusParam = searchParams.get('status');
+  
+  if (statusParam === 'true') {
+    return NextResponse.json(scrapingStatus);
+  }
+  
+  return NextResponse.json({ message: 'Use POST to start scraping' });
+}
+
+export async function POST(request: NextRequest) {
   try {
-    // Use a try-catch block specifically for URL parsing
-    let url;
-    try {
-      url = new URL(request.url);
-    } catch (urlError) {
-      console.error('Invalid URL in request:', request.url);
+    // If scraping is already in progress, return status
+    if (scrapingStatus.isRunning) {
+      return NextResponse.json({
+        message: `Scraping already in progress (${scrapingStatus.mode} mode). Started at ${scrapingStatus.startTime}`,
+        status: scrapingStatus
+      });
+    }
+    
+    const { searchParams } = new URL(request.url);
+    const mode = searchParams.get('mode');
+    
+    if (!mode || (mode !== 'days' && mode !== 'new')) {
       return NextResponse.json(
-        { success: false, error: 'Invalid request URL' },
+        { error: 'Invalid mode. Use "days" or "new".' },
         { status: 400 }
       );
     }
     
-    // Get mode parameter - 'days' or 'new'
-    const mode = url.searchParams.get('mode') || 'days';
+    // Reset status for new scraping operation
+    scrapingStatus.isRunning = true;
+    scrapingStatus.startTime = new Date().toISOString();
+    scrapingStatus.endTime = null;
+    scrapingStatus.lastError = null;
+    scrapingStatus.mode = mode;
+    scrapingStatus.lastResult = null;
+    scrapingStatus.progress = null;
     
-    if (mode === 'new') {
-      // Start scraping new papers asynchronously
-      scrapeNewPapers().catch(error => {
-        console.error('Scraping error:', error);
-      });
+    if (mode === 'days') {
+      // Get days from request body
+      const body = await request.json();
+      const days = body.days || 7;
       
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Started scraping all new papers since the most recent paper in the database.' 
-      });
-    } else {
-      // Get days parameter from URL, default to 7 days
-      const days = parseInt(url.searchParams.get('days') || '7', 10);
+      // Validate days
+      if (isNaN(days) || days < 1 || days > 30) {
+        scrapingStatus.isRunning = false;
+        scrapingStatus.lastError = 'Invalid days parameter. Must be a number between 1 and 30.';
+        return NextResponse.json(
+          { error: scrapingStatus.lastError },
+          { status: 400 }
+        );
+      }
       
-      // Start scraping asynchronously (we'll return immediately)
-      scrapeMultipleDays(days).catch(error => {
-        console.error('Scraping error:', error);
-      });
+      scrapingStatus.daysToScrape = days;
       
-      return NextResponse.json({ 
-        success: true, 
-        message: `Started scraping for the last ${days} days.` 
+      // Start scraping in the background
+      scrapeByDaysInBackground(days);
+      
+      return NextResponse.json({
+        message: `Started scraping papers for the last ${days} days in the background.`,
+        status: scrapingStatus
+      });
+    } else if (mode === 'new') {
+      // Start scraping in the background
+      scrapeNewInBackground();
+      
+      return NextResponse.json({
+        message: 'Started scraping new papers in the background.',
+        status: scrapingStatus
       });
     }
+    
+    return NextResponse.json(
+      { error: 'Invalid mode. Use "days" or "new".' },
+      { status: 400 }
+    );
   } catch (error) {
     console.error('Error in scrape API:', error);
+    
+    // Update status with error
+    scrapingStatus.isRunning = false;
+    scrapingStatus.endTime = new Date().toISOString();
+    scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
+    
     return NextResponse.json(
-      { success: false, error: 'Failed to start scraping' },
+      { error: scrapingStatus.lastError },
       { status: 500 }
     );
   }
 }
 
-// Add a POST endpoint to handle form submissions from the admin dashboard
-export async function POST(request: Request) {
+// Function to scrape by days in the background
+async function scrapeByDaysInBackground(days: number) {
   try {
-    const body = await request.json();
-    const { mode, days } = body;
+    // Initialize progress
+    scrapingStatus.progress = {
+      currentDay: 0,
+      totalDays: days
+    };
     
-    if (mode === 'new') {
-      // Start scraping new papers asynchronously
-      const result = await scrapeNewPapers();
-      
-      return NextResponse.json({ 
-        success: true, 
-        message: `Completed scraping ${result.totalPapers} new papers across ${result.daysProcessed} days.`,
-        result
-      });
-    } else {
-      // Default to 7 days if not specified
-      const daysToScrape = parseInt(days || '7', 10);
-      
-      // Start scraping and wait for it to complete
-      await scrapeMultipleDays(daysToScrape);
-      
-      return NextResponse.json({ 
-        success: true, 
-        message: `Completed scraping for the last ${daysToScrape} days.` 
-      });
-    }
+    // Create a wrapper around scrapeMultipleDays that updates progress
+    const scrapeWithProgress = async () => {
+      try {
+        let totalPapers = 0;
+        
+        for (let i = 0; i < days; i++) {
+          // Update progress
+          scrapingStatus.progress = {
+            currentDay: i + 1,
+            totalDays: days
+          };
+          
+          // Scrape for this day
+          const dayResult = await scrapeForDay(i);
+          totalPapers += dayResult;
+          
+          // Small delay to prevent overwhelming the server
+          if (i < days - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+        
+        // Update status on completion
+        scrapingStatus.isRunning = false;
+        scrapingStatus.endTime = new Date().toISOString();
+        scrapingStatus.lastResult = {
+          totalPapers,
+          daysProcessed: days
+        };
+        scrapingStatus.progress = null;
+        
+        console.log(`Completed scraping for ${days} days. Total papers: ${totalPapers}`);
+      } catch (error) {
+        // Update status with error
+        scrapingStatus.isRunning = false;
+        scrapingStatus.endTime = new Date().toISOString();
+        scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
+        scrapingStatus.progress = null;
+        
+        console.error('Error in background scraping:', error);
+      }
+    };
+    
+    // Start the scraping process in the background
+    scrapeWithProgress();
+    
+    return true;
   } catch (error) {
-    console.error('Error in scrape API:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to start scraping' },
-      { status: 500 }
-    );
+    // Update status with error
+    scrapingStatus.isRunning = false;
+    scrapingStatus.endTime = new Date().toISOString();
+    scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
+    scrapingStatus.progress = null;
+    
+    console.error('Error starting background scraping:', error);
+    return false;
+  }
+}
+
+// Function to scrape new papers in the background
+async function scrapeNewInBackground() {
+  try {
+    // Start the scraping process in the background
+    const scrapeWithProgress = async () => {
+      try {
+        const result = await scrapeNewPapers();
+        
+        // Update status on completion
+        scrapingStatus.isRunning = false;
+        scrapingStatus.endTime = new Date().toISOString();
+        scrapingStatus.lastResult = result;
+        scrapingStatus.progress = null;
+        
+        console.log(`Completed scraping new papers. Total papers: ${result.totalPapers}`);
+      } catch (error) {
+        // Update status with error
+        scrapingStatus.isRunning = false;
+        scrapingStatus.endTime = new Date().toISOString();
+        scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
+        scrapingStatus.progress = null;
+        
+        console.error('Error in background scraping:', error);
+      }
+    };
+    
+    // Start the scraping process in the background
+    scrapeWithProgress();
+    
+    return true;
+  } catch (error) {
+    // Update status with error
+    scrapingStatus.isRunning = false;
+    scrapingStatus.endTime = new Date().toISOString();
+    scrapingStatus.lastError = error instanceof Error ? error.message : 'An unknown error occurred';
+    
+    console.error('Error starting background scraping:', error);
+    return false;
+  }
+}
+
+// Helper function to scrape for a specific day
+async function scrapeForDay(dayOffset: number): Promise<number> {
+  try {
+    // Import dayjs for date calculations
+    const dayjs = require('dayjs');
+    
+    // Calculate the date for this offset
+    const date = dayjs().subtract(dayOffset, 'day').format('YYYY-MM-DD');
+    
+    // Update progress with more details
+    scrapingStatus.progress = {
+      ...scrapingStatus.progress,
+      currentDay: dayOffset + 1,
+      totalDays: scrapingStatus.daysToScrape || 1,
+      currentBatch: 0,
+      totalBatches: 0
+    };
+    
+    console.log(`Scraping for day ${dayOffset + 1}/${scrapingStatus.daysToScrape}: ${date}`);
+    
+    // Import the scraper functions directly to avoid circular dependencies
+    const { scrapePapers, savePapers } = require('@/lib/scraper');
+    
+    // Scrape papers for this day
+    const papers = await scrapePapers(date);
+    
+    if (papers.length > 0) {
+      // Update progress before saving
+      scrapingStatus.progress = {
+        ...scrapingStatus.progress,
+        currentBatch: 1,
+        totalBatches: Math.ceil(papers.length / 20) // Assuming batch size of 20
+      };
+      
+      // Save the papers
+      await savePapers(papers);
+    }
+    
+    return papers.length;
+  } catch (error) {
+    console.error(`Error scraping for day offset ${dayOffset}:`, error);
+    return 0;
   }
 } 
