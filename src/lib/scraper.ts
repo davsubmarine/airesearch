@@ -173,25 +173,46 @@ export async function savePapers(papers: Paper[]): Promise<void> {
  * Scrapes papers for multiple days
  * @param days Number of days to scrape (default: 7)
  */
-export async function scrapeMultipleDays(days: number = 7): Promise<void> {
+export async function scrapeMultipleDays(days: number = 7): Promise<{ totalPapers: number, daysProcessed: number }> {
   console.log(`Starting to scrape papers for the last ${days} days...`);
   
-  let totalPapers = 0;
+  // Enforce maximum days limit
+  const limitedDays = Math.min(30, days);
+  if (limitedDays < days) {
+    console.log(`Limiting scraping to ${limitedDays} days (from ${days} days) to prevent excessive scraping`);
+  }
   
-  for (let i = 0; i < days; i++) {
+  let totalPapers = 0;
+  let successfulDays = 0;
+  
+  for (let i = 0; i < limitedDays; i++) {
     const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    console.log(`Processing day ${i + 1}/${days}: ${date}`);
+    console.log(`Processing day ${i + 1}/${limitedDays}: ${date}`);
     
     try {
+      // Update progress if the updateScrapingProgress function is available
+      try {
+        const { updateScrapingProgress } = require('@/app/api/scrape/route');
+        updateScrapingProgress({
+          currentDay: i + 1,
+          totalDays: limitedDays,
+          currentBatch: 0,
+          totalBatches: 0
+        });
+      } catch (e) {
+        // Ignore if the function is not available
+      }
+      
       const papers = await scrapePapers(date);
       totalPapers += papers.length;
       
       if (papers.length > 0) {
         await savePapers(papers);
+        successfulDays++;
       }
       
       // Add a small delay to avoid overwhelming the server
-      if (i < days - 1) {
+      if (i < limitedDays - 1) {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     } catch (error) {
@@ -200,7 +221,8 @@ export async function scrapeMultipleDays(days: number = 7): Promise<void> {
     }
   }
   
-  console.log(`Completed scraping for all ${days} days. Total papers scraped: ${totalPapers}`);
+  console.log(`Completed scraping for all ${limitedDays} days. Total papers scraped: ${totalPapers}`);
+  return { totalPapers, daysProcessed: successfulDays };
 }
 
 /**
@@ -258,32 +280,6 @@ export async function scrapeNewPapers(): Promise<{ totalPapers: number, daysProc
     console.log(`Limiting scraping to ${limitedDaysToScrape} days (from ${daysToScrape} days) to prevent excessive scraping`);
   }
   
-  console.log(`Scraping papers for the last ${limitedDaysToScrape} days...`);
-  
-  let totalPapers = 0;
-  
-  for (let i = 0; i < limitedDaysToScrape; i++) {
-    const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    console.log(`Processing day ${i + 1}/${limitedDaysToScrape}: ${date}`);
-    
-    try {
-      const papers = await scrapePapers(date);
-      totalPapers += papers.length;
-      
-      if (papers.length > 0) {
-        await savePapers(papers);
-      }
-      
-      // Add a small delay to avoid overwhelming the server
-      if (i < limitedDaysToScrape - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    } catch (error) {
-      console.error(`Error processing day ${date}:`, error);
-      // Continue with the next day even if there's an error
-    }
-  }
-  
-  console.log(`Completed scraping new papers. Total papers scraped: ${totalPapers}`);
-  return { totalPapers, daysProcessed: limitedDaysToScrape };
+  // Use the scrapeMultipleDays function to avoid code duplication
+  return scrapeMultipleDays(limitedDaysToScrape);
 } 

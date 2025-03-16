@@ -66,26 +66,43 @@ export async function POST(request: NextRequest) {
     
     if (mode === 'days') {
       // Get days from request body
-      const body = await request.json();
-      const days = body.days || 7;
-      
-      // Validate days
-      if (isNaN(days) || days < 1 || days > 30) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (error) {
         scrapingStatus.isRunning = false;
-        scrapingStatus.lastError = 'Invalid days parameter. Must be a number between 1 and 30.';
+        scrapingStatus.lastError = 'Invalid request body. Expected JSON with a "days" property.';
         return NextResponse.json(
           { error: scrapingStatus.lastError },
           { status: 400 }
         );
       }
       
-      scrapingStatus.daysToScrape = days;
+      const days = parseInt(body.days) || 7;
+      
+      // Validate days - strictly enforce the 30-day limit
+      if (isNaN(days) || days < 1) {
+        scrapingStatus.isRunning = false;
+        scrapingStatus.lastError = 'Invalid days parameter. Must be a positive number.';
+        return NextResponse.json(
+          { error: scrapingStatus.lastError },
+          { status: 400 }
+        );
+      }
+      
+      // Enforce maximum days limit
+      const limitedDays = Math.min(30, days);
+      if (limitedDays < days) {
+        console.log(`Limiting requested scraping days from ${days} to ${limitedDays} to prevent timeouts`);
+      }
+      
+      scrapingStatus.daysToScrape = limitedDays;
       
       // Start scraping in the background
-      scrapeByDaysInBackground(days);
+      scrapeByDaysInBackground(limitedDays);
       
       return NextResponse.json({
-        message: `Started scraping papers for the last ${days} days in the background.`,
+        message: `Started scraping papers for the last ${limitedDays} days in the background.${limitedDays < days ? ' (Limited from ' + days + ' days to prevent timeouts)' : ''}`,
         status: scrapingStatus
       });
     } else if (mode === 'new') {
@@ -249,22 +266,48 @@ async function scrapeForDay(dayOffset: number): Promise<number> {
     // Import the scraper functions directly to avoid circular dependencies
     const { scrapePapers, savePapers } = require('@/lib/scraper');
     
-    // Scrape papers for this day
-    const papers = await scrapePapers(date);
-    
-    if (papers.length > 0) {
-      // Update progress before saving
-      scrapingStatus.progress = {
-        ...scrapingStatus.progress,
-        currentBatch: 1,
-        totalBatches: Math.ceil(papers.length / 20) // Assuming batch size of 20
-      };
+    try {
+      // Scrape papers for this day
+      const papers = await scrapePapers(date);
       
-      // Save the papers
-      await savePapers(papers);
+      if (papers.length > 0) {
+        // Calculate batches for progress tracking
+        const batchSize = 20;
+        const totalBatches = Math.ceil(papers.length / batchSize);
+        
+        // Process in batches
+        for (let i = 0; i < totalBatches; i++) {
+          // Update progress before saving this batch
+          scrapingStatus.progress = {
+            ...scrapingStatus.progress,
+            currentBatch: i + 1,
+            totalBatches
+          };
+          
+          // Get the current batch
+          const start = i * batchSize;
+          const end = Math.min(start + batchSize, papers.length);
+          const batch = papers.slice(start, end);
+          
+          console.log(`Saving batch ${i + 1}/${totalBatches} (${batch.length} papers) for day ${date}`);
+          
+          // Save this batch
+          await savePapers(batch);
+          
+          // Small delay between batches
+          if (i < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      } else {
+        console.log(`No papers found for date: ${date}`);
+      }
+      
+      return papers.length;
+    } catch (error) {
+      console.error(`Error processing papers for date ${date}:`, error);
+      return 0;
     }
-    
-    return papers.length;
   } catch (error) {
     console.error(`Error scraping for day offset ${dayOffset}:`, error);
     return 0;

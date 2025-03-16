@@ -203,24 +203,39 @@ export default function AdminDashboard() {
   };
 
   const handleScrapeByDays = async () => {
+    // Validate days input
+    const days = parseInt(daysToScrape) || 7;
+    if (days > 30) {
+      setScrapingMessage("Error: Maximum scraping period is 30 days to prevent timeouts. Please enter a smaller number.");
+      return;
+    }
+    
     setIsScraping(true);
     setScrapingMessage(null);
     setScrapingResult(null);
     
     try {
-      const response = await fetch('/api/scrape', {
+      const response = await fetch('/api/scrape?mode=days', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ mode: 'days', days: daysToScrape }),
+        body: JSON.stringify({ days }),
       });
       
       if (!response.ok) {
+        if (response.status === 504) {
+          throw new Error("Request timed out. Try scraping fewer days (maximum recommended: 30 days).");
+        }
         throw new Error(`Server responded with status: ${response.status}`);
       }
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        throw new Error("Server response was not valid JSON. The request likely timed out.");
+      }
       
       if (data.message) {
         setScrapingMessage(data.message);
@@ -298,6 +313,7 @@ export default function AdminDashboard() {
                       className="w-24"
                     />
                     <span>days</span>
+                    <span className="text-xs text-gray-500">(max: 30)</span>
                   </div>
                   <Button 
                     onClick={handleScrapeByDays} 
